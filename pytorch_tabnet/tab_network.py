@@ -104,6 +104,8 @@ class TabNetEncoder(torch.nn.Module):
         self.initial_bn = BatchNorm1d(self.input_dim, momentum=0.01)
         self.group_attention_matrix = group_attention_matrix
 
+        self.relu = ReLU()  # Properly registered as a submodule
+
         if self.group_attention_matrix is None:
             # no groups
             self.group_attention_matrix = torch.eye(self.input_dim)
@@ -179,7 +181,7 @@ class TabNetEncoder(torch.nn.Module):
             M_feature_level = torch.matmul(M, self.group_attention_matrix)
             masked_x = torch.mul(M_feature_level, x)
             out = self.feat_transformers[step](masked_x)
-            d = ReLU()(out[:, : self.n_d])
+            d = self.relu(out[:, : self.n_d])
             steps_output.append(d)
             # update attention
             att = out[:, self.n_d :]
@@ -204,7 +206,7 @@ class TabNetEncoder(torch.nn.Module):
             # output
             masked_x = torch.mul(M_feature_level, x)
             out = self.feat_transformers[step](masked_x)
-            d = ReLU()(out[:, : self.n_d])
+            d = self.relu(out[:, : self.n_d])
             # explain
             step_importance = torch.sum(d, dim=1)
             M_explain += torch.mul(M_feature_level, step_importance.unsqueeze(dim=1))
