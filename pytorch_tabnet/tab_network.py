@@ -178,7 +178,7 @@ class TabNetEncoder(torch.nn.Module):
             # update prior
             prior = torch.mul(self.gamma - M, prior)
             # output
-            M_feature_level = torch.matmul(M, self.group_attention_matrix)
+            M_feature_level = torch.matmul(M, self.group_attention_matrix.to(x.device))
             masked_x = torch.mul(M_feature_level, x)
             out = self.feat_transformers[step](masked_x)
             d = self.relu(out[:, : self.n_d])
@@ -199,7 +199,7 @@ class TabNetEncoder(torch.nn.Module):
 
         for step in range(self.n_steps):
             M = self.att_transformers[step](prior, att)
-            M_feature_level = torch.matmul(M, self.group_attention_matrix)
+            M_feature_level = torch.matmul(M, self.group_attention_matrix.to(x.device))
             masks[step] = M_feature_level
             # update prior
             prior = torch.mul(self.gamma - M, prior)
