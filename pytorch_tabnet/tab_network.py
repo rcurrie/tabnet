@@ -32,7 +32,15 @@ class GBN(torch.nn.Module):
         self.bn = BatchNorm1d(self.input_dim, momentum=momentum)
 
     def forward(self, x):
-        chunks = x.chunk(int(np.ceil(x.shape[0] / self.virtual_batch_size)), 0)
+        # chunks = x.chunk(int(np.ceil(x.shape[0] / self.virtual_batch_size)), 0)
+
+        # Calculate chunk size dynamically using tensor operations instead of Python int for onnx export
+        batch_size = x.shape[0]
+        chunk_size = (batch_size + self.virtual_batch_size - 1) // self.virtual_batch_size  # integer division is ONNX-friendly
+
+        # Split the tensor into chunks with torch.split
+        chunks = torch.split(x, self.virtual_batch_size, dim=0)
+
         res = [self.bn(x_) for x_ in chunks]
 
         return torch.cat(res, dim=0)
@@ -102,17 +110,19 @@ class TabNetEncoder(torch.nn.Module):
         self.virtual_batch_size = virtual_batch_size
         self.mask_type = mask_type
         self.initial_bn = BatchNorm1d(self.input_dim, momentum=0.01)
-        self.group_attention_matrix = group_attention_matrix
+        # self.group_attention_matrix = group_attention_matrix
 
         self.relu = ReLU()  # Properly registered as a submodule
 
-        if self.group_attention_matrix is None:
+        # Register to facilitate onnx conversion
+        if group_attention_matrix is None:
             # no groups
-            self.group_attention_matrix = torch.eye(self.input_dim)
+            self.register_buffer("group_attention_matrix", torch.eye(self.input_dim))
             self.attention_dim = self.input_dim
         else:
+            self.register_buffer("group_attention_matrix", group_attention_matrix)
             self.attention_dim = self.group_attention_matrix.shape[0]
-
+        
         if self.n_shared > 0:
             shared_feat_transform = torch.nn.ModuleList()
             for i in range(self.n_shared):
@@ -728,7 +738,8 @@ class FeatTransformer(torch.nn.Module):
 
         if n_glu_independent == 0:
             # no independent layers
-            self.specifics = torch.nn.Identity()
+            # Registering necessary for exporting the model to ONNX
+            self.register_buffer("specifics", torch.nn.Identity())
         else:
             spec_input_dim = input_dim if is_first else output_dim
             self.specifics = GLU_Block(
@@ -770,8 +781,10 @@ class GLU_Block(torch.nn.Module):
             fc = shared_layers[glu_id] if shared_layers else None
             self.glu_layers.append(GLU_Layer(output_dim, output_dim, fc=fc, **params))
 
+        self.register_buffer("scale", torch.sqrt(torch.FloatTensor([0.5])))
+
     def forward(self, x):
-        scale = torch.sqrt(torch.FloatTensor([0.5]).to(x.device))
+        # scale = torch.sqrt(torch.FloatTensor([0.5]).to(x.device))
         if self.first:  # the first layer of the block has no scale multiplication
             x = self.glu_layers[0](x)
             layers_left = range(1, self.n_glu)
@@ -780,7 +793,7 @@ class GLU_Block(torch.nn.Module):
 
         for glu_id in layers_left:
             x = torch.add(x, self.glu_layers[glu_id](x))
-            x = x * scale
+            x = x * self.scale
         return x
 
 
