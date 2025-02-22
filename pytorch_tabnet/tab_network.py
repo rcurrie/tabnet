@@ -637,8 +637,11 @@ class AttentiveTransformer(torch.nn.Module):
         x = self.fc(processed_feat)
         x = self.bn(x)
         x = torch.mul(x, priors)
-        x = self.selector(x)
-        return x
+        # Force onnx exports to compute sparsemax in 64bit to eliminate numerical differences
+        if torch.onnx.is_in_onnx_export():
+            return self.selector(x.to(torch.float64)).to(x.dtype)
+        else:
+            return self.selector(x)
 
 
 class FeatTransformer(torch.nn.Module):
